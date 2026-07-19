@@ -130,3 +130,76 @@ func TestNoArgsPrintsUsageAndExits2(t *testing.T) {
 		t.Fatalf("expected usage text in stderr, got: %q", errOut)
 	}
 }
+
+func TestHealth_HealthyTenantExitsZero(t *testing.T) {
+	storePath := filepath.Join(t.TempDir(), "tenants.json")
+	runCLI(t, storePath, "register", "--id", "acme", "--name", "Acme", "--auth", "api_key", "--rps", "10", "--burst", "20")
+
+	code, out, errOut := runCLI(t, storePath, "health", "acme")
+	if code != 0 {
+		t.Fatalf("expected exit 0 for healthy tenant, got %d (stderr: %s)", code, errOut)
+	}
+	if !strings.Contains(out, "acme: healthy") {
+		t.Fatalf("expected overall healthy status in output, got: %q", out)
+	}
+}
+
+func TestHealth_NoHeadroomIsDegradedButExitsZero(t *testing.T) {
+	storePath := filepath.Join(t.TempDir(), "tenants.json")
+	// rps == burst (no --burst override) means zero headroom.
+	runCLI(t, storePath, "register", "--id", "acme", "--name", "Acme", "--auth", "api_key", "--rps", "10")
+
+	code, out, errOut := runCLI(t, storePath, "health", "acme")
+	if code != 0 {
+		t.Fatalf("expected exit 0 for degraded-only tenant, got %d (stderr: %s)", code, errOut)
+	}
+	if !strings.Contains(out, "acme: degraded") {
+		t.Fatalf("expected overall degraded status, got: %q", out)
+	}
+	if !strings.Contains(out, "rate-limit-headroom") {
+		t.Fatalf("expected rate-limit-headroom check to be reported, got: %q", out)
+	}
+}
+
+func TestHealth_UnknownTenantExitsOne(t *testing.T) {
+	storePath := filepath.Join(t.TempDir(), "tenants.json")
+	code, _, errOut := runCLI(t, storePath, "health", "ghost")
+	if code != 1 {
+		t.Fatalf("expected exit 1 for unknown tenant, got %d", code)
+	}
+	if !strings.Contains(errOut, "not found") {
+		t.Fatalf("expected not-found error, got: %q", errOut)
+	}
+}
+
+func TestHealth_NoArgsSkipsInactiveByDefault(t *testing.T) {
+	storePath := filepath.Join(t.TempDir(), "tenants.json")
+	runCLI(t, storePath, "register", "--id", "acme", "--name", "Acme", "--auth", "api_key", "--rps", "10", "--burst", "20")
+	runCLI(t, storePath, "register", "--id", "globex", "--name", "Globex", "--auth", "api_key", "--rps", "10", "--burst", "20")
+	runCLI(t, storePath, "deactivate", "globex")
+
+	code, out, errOut := runCLI(t, storePath, "health")
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d (stderr: %s)", code, errOut)
+	}
+	if !strings.Contains(out, "acme:") {
+		t.Fatalf("expected active tenant acme to be checked, got: %q", out)
+	}
+	if strings.Contains(out, "globex:") {
+		t.Fatalf("expected inactive tenant globex to be skipped by default, got: %q", out)
+	}
+}
+
+func TestHealth_IncludeInactiveFlagChecksDeactivatedTenants(t *testing.T) {
+	storePath := filepath.Join(t.TempDir(), "tenants.json")
+	runCLI(t, storePath, "register", "--id", "globex", "--name", "Globex", "--auth", "api_key", "--rps", "10", "--burst", "20")
+	runCLI(t, storePath, "deactivate", "globex")
+
+	code, out, errOut := runCLI(t, storePath, "health", "--include-inactive")
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d (stderr: %s)", code, errOut)
+	}
+	if !strings.Contains(out, "globex:") {
+		t.Fatalf("expected --include-inactive to check the deactivated tenant, got: %q", out)
+	}
+}

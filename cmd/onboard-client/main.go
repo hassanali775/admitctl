@@ -7,6 +7,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"github.com/hassanli775/admitctl/internal/health"
 	"github.com/hassanli775/admitctl/internal/registry"
 	"github.com/hassanli775/admitctl/internal/store"
 	"github.com/hassanli775/admitctl/internal/tenant"
@@ -58,6 +60,8 @@ func run(args []string, storePath string, stdout, stderr io.Writer) int {
 		return cmdGet(reg, rest, stdout, stderr)
 	case "deactivate":
 		return cmdDeactivate(reg, storePath, rest, stdout, stderr)
+	case "health":
+		return cmdHealth(reg, rest, stdout, stderr)
 	case "-h", "--help", "help":
 		printUsage(stdout)
 		return 0
@@ -204,6 +208,74 @@ func cmdDeactivate(reg *registry.Registry, storePath string, args []string, stdo
 	return 0
 }
 
+func cmdHealth(reg *registry.Registry, args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("health", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	includeInactive := fs.Bool("include-inactive", false, "also check deactivated tenants (skipped by default)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if fs.NArg() > 1 {
+		fmt.Fprintln(stderr, "admitctl: health accepts at most one tenant ID")
+		return 2
+	}
+
+	var records []registry.Record
+	if fs.NArg() == 1 {
+		rec, err := reg.Get(fs.Arg(0))
+		if err != nil {
+			fmt.Fprintf(stderr, "admitctl: %v\n", err)
+			return 1
+		}
+		records = []registry.Record{rec}
+	} else {
+		for _, rec := range reg.List() {
+			if rec.Status == registry.StatusInactive && !*includeInactive {
+				continue
+			}
+			records = append(records, rec)
+		}
+	}
+
+	if len(records) == 0 {
+		fmt.Fprintln(stdout, "no tenants to check")
+		return 0
+	}
+
+	reports := defaultHealthRunner().RunMany(context.Background(), records)
+
+	anyUnhealthy := false
+	for _, rep := range reports {
+		fmt.Fprintf(stdout, "%s: %s\n", rep.TenantID, rep.Overall)
+		for _, res := range rep.Results {
+			fmt.Fprintf(stdout, "  - [%s] %s: %s\n", res.Status, res.Name, res.Message)
+		}
+		if rep.Overall == health.StatusUnhealthy {
+			anyUnhealthy = true
+		}
+	}
+
+	if anyUnhealthy {
+		return 1
+	}
+	return 0
+}
+
+// defaultHealthRunner wires up the checks admitctl currently ships
+// with. Supported/deprecated schema versions live here rather than
+// in the health package itself, since which versions the platform
+// currently supports is operational policy, not a fixed rule.
+func defaultHealthRunner() *health.Runner {
+	return health.NewRunner(
+		health.ConfigValidationChecker{},
+		health.NewSchemaVersionChecker(
+			[]string{"v1", "v1.1", "v2"},
+			[]string{"v0.9"},
+		),
+		health.RateLimitHeadroomChecker{},
+	)
+}
+
 func persist(reg *registry.Registry, storePath string) error {
 	return store.Save(storePath, reg.List())
 }
@@ -241,6 +313,7 @@ Usage:
   onboard-client list
   onboard-client get ID
   onboard-client deactivate ID
+  onboard-client health [ID] [--include-inactive]
 
 Environment:
   ADMITCTL_STORE   path to the tenant store file (default: ~/.admitctl/tenants.json)
