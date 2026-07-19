@@ -3,8 +3,6 @@
 // every onboarding path (CLI, API, batch import) must agree on.
 package tenant
 
-import "time"
-
 // AuthMethod identifies how a tenant's traffic authenticates against
 // the platform. New methods must be added to the allow-list in
 // validMethods (validation.go) or they will be rejected at onboarding.
@@ -34,5 +32,4 @@ type Config struct {
 	DataSchemaVersion string
 	RateLimit         RateLimit
 	FeatureFlags      map[string]bool
-	CreatedAt         time.Time
 }

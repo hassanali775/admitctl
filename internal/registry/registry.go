@@ -136,3 +136,19 @@ func (r *Registry) Deactivate(id string) error {
 	rec.UpdatedAt = time.Now()
 	return nil
 }
+
+// Restore replaces the registry's entire contents with records,
+// bypassing Register's validation and duplicate checks. It exists
+// solely to hydrate a fresh Registry from a persisted snapshot (see
+// internal/store) at process startup. Callers representing a new
+// tenant being onboarded should use Register, never Restore.
+func (r *Registry) Restore(records []Record) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.records = make(map[string]*Record, len(records))
+	for i := range records {
+		rec := records[i]
+		r.records[rec.Config.ID] = &rec
+	}
+}

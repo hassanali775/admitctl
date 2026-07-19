@@ -147,6 +147,57 @@ func TestDeactivate_NotFound(t *testing.T) {
 	}
 }
 
+func TestRestore_HydratesFromSnapshot(t *testing.T) {
+	src := NewRegistry()
+	if err := src.Register(sampleConfig("acme")); err != nil {
+		t.Fatalf("setup: register failed: %v", err)
+	}
+	if err := src.Deactivate("acme"); err != nil {
+		t.Fatalf("setup: deactivate failed: %v", err)
+	}
+	if err := src.Register(sampleConfig("globex")); err != nil {
+		t.Fatalf("setup: register failed: %v", err)
+	}
+	snapshot := src.List()
+
+	dst := NewRegistry()
+	dst.Restore(snapshot)
+
+	got := dst.List()
+	if len(got) != 2 {
+		t.Fatalf("expected 2 restored records, got %d", len(got))
+	}
+
+	acme, err := dst.Get("acme")
+	if err != nil {
+		t.Fatalf("expected restored tenant %q to be present: %v", "acme", err)
+	}
+	if acme.Status != StatusInactive {
+		t.Fatalf("expected restored status to be preserved (inactive), got %s", acme.Status)
+	}
+
+	globex, err := dst.Get("globex")
+	if err != nil {
+		t.Fatalf("expected restored tenant %q to be present: %v", "globex", err)
+	}
+	if globex.Status != StatusActive {
+		t.Fatalf("expected restored status to be preserved (active), got %s", globex.Status)
+	}
+}
+
+func TestRestore_ReplacesExistingContents(t *testing.T) {
+	r := NewRegistry()
+	if err := r.Register(sampleConfig("stale")); err != nil {
+		t.Fatalf("setup: register failed: %v", err)
+	}
+
+	r.Restore([]Record{}) // empty snapshot
+
+	if got := r.List(); len(got) != 0 {
+		t.Fatalf("expected Restore with empty snapshot to clear existing records, got %d", len(got))
+	}
+}
+
 // TestRegistry_ConcurrentAccess registers, reads, lists, and
 // deactivates tenants from many goroutines at once. Run with -race
 // to confirm the registry's locking is correct, not just its logic.
