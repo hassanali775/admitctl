@@ -147,6 +147,49 @@ func TestDeactivate_NotFound(t *testing.T) {
 	}
 }
 
+func TestRemove_Success(t *testing.T) {
+	r := NewRegistry()
+	if err := r.Register(sampleConfig("acme")); err != nil {
+		t.Fatalf("setup: register failed: %v", err)
+	}
+
+	if err := r.Remove("acme"); err != nil {
+		t.Fatalf("expected remove to succeed, got: %v", err)
+	}
+	if _, err := r.Get("acme"); !errors.Is(err, ErrNotFound) {
+		t.Fatal("expected tenant to be gone entirely after Remove, not just inactive")
+	}
+}
+
+func TestRemove_NotFound(t *testing.T) {
+	r := NewRegistry()
+	err := r.Remove("does-not-exist")
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got: %v", err)
+	}
+}
+
+func TestRemove_DiffersFromDeactivate(t *testing.T) {
+	r := NewRegistry()
+	if err := r.Register(sampleConfig("acme")); err != nil {
+		t.Fatalf("setup: register failed: %v", err)
+	}
+	if err := r.Deactivate("acme"); err != nil {
+		t.Fatalf("setup: deactivate failed: %v", err)
+	}
+	// Deactivate keeps the record around (List still sees it).
+	if got := r.List(); len(got) != 1 {
+		t.Fatalf("expected deactivated tenant to still be listed, got %d records", len(got))
+	}
+	// Remove erases it entirely.
+	if err := r.Remove("acme"); err != nil {
+		t.Fatalf("remove failed: %v", err)
+	}
+	if got := r.List(); len(got) != 0 {
+		t.Fatalf("expected 0 records after Remove, got %d", len(got))
+	}
+}
+
 func TestRestore_HydratesFromSnapshot(t *testing.T) {
 	src := NewRegistry()
 	if err := src.Register(sampleConfig("acme")); err != nil {

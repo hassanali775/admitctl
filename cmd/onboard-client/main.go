@@ -18,6 +18,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/hassanli775/admitctl/internal/health"
+	"github.com/hassanli775/admitctl/internal/onboarding"
 	"github.com/hassanli775/admitctl/internal/registry"
 	"github.com/hassanli775/admitctl/internal/store"
 	"github.com/hassanli775/admitctl/internal/tenant"
@@ -99,26 +100,66 @@ func cmdRegister(reg *registry.Registry, storePath string, args []string, stdout
 		FeatureFlags:      parseFeatureFlags(*flags),
 	}
 
-	if err := reg.Register(cfg); err != nil {
-		var verrs tenant.ValidationErrors
-		if errors.As(err, &verrs) {
-			fmt.Fprintln(stderr, "admitctl: invalid tenant configuration:")
-			for _, fe := range verrs {
-				fmt.Fprintf(stderr, "  - %s\n", fe)
+	pipeline, healthCheck := onboarding.NewOnboardPipeline(reg, storePath, cfg, defaultHealthRunner())
+	if err := pipeline.Run(context.Background()); err != nil {
+		return reportOnboardingFailure(err, stderr)
+	}
+
+	fmt.Fprintf(stdout, "tenant %q registered (auth=%s, rps=%d, burst=%d)\n", *id, *auth, *rps, *burst)
+	if healthCheck.Report.Overall == health.StatusDegraded {
+		fmt.Fprintln(stdout, "warning: tenant onboarded with degraded health — review before relying on it in production:")
+		for _, res := range healthCheck.Report.Results {
+			if res.Status != health.StatusHealthy {
+				fmt.Fprintf(stdout, "  - [%s] %s: %s\n", res.Status, res.Name, res.Message)
 			}
-			return 1
 		}
+	}
+	return 0
+}
+
+// reportOnboardingFailure translates a failed onboarding pipeline run
+// into user-facing output, preserving the same field-level detail the
+// CLI has always given for invalid configs and duplicate IDs, while
+// adding rollback status for failures that occur after registration.
+func reportOnboardingFailure(err error, stderr io.Writer) int {
+	var perr *onboarding.PipelineError
+	if !errors.As(err, &perr) {
 		fmt.Fprintf(stderr, "admitctl: %v\n", err)
 		return 1
 	}
 
-	if err := persist(reg, storePath); err != nil {
-		fmt.Fprintf(stderr, "admitctl: tenant registered but failed to save: %v\n", err)
+	var verrs tenant.ValidationErrors
+	if errors.As(perr.Cause, &verrs) {
+		fmt.Fprintln(stderr, "admitctl: invalid tenant configuration:")
+		for _, fe := range verrs {
+			fmt.Fprintf(stderr, "  - %s\n", fe)
+		}
 		return 1
 	}
 
-	fmt.Fprintf(stdout, "tenant %q registered (auth=%s, rps=%d, burst=%d)\n", *id, *auth, *rps, *burst)
-	return 0
+	var uerr *onboarding.UnhealthyConfigError
+	if errors.As(perr.Cause, &uerr) {
+		fmt.Fprintln(stderr, "admitctl: onboarding rejected — initial health check failed:")
+		for _, res := range uerr.Report.Results {
+			if res.Status == health.StatusUnhealthy {
+				fmt.Fprintf(stderr, "  - [%s] %s: %s\n", res.Status, res.Name, res.Message)
+			}
+		}
+		reportRollbackStatus(perr, stderr)
+		return 1
+	}
+
+	fmt.Fprintf(stderr, "admitctl: onboarding failed at step %q: %v\n", perr.FailedStep, perr.Cause)
+	reportRollbackStatus(perr, stderr)
+	return 1
+}
+
+func reportRollbackStatus(perr *onboarding.PipelineError, stderr io.Writer) {
+	if perr.RollbackErr != nil {
+		fmt.Fprintf(stderr, "admitctl: WARNING: rollback also failed, system may be in a partial state: %v\n", perr.RollbackErr)
+		return
+	}
+	fmt.Fprintln(stderr, "admitctl: onboarding attempt rolled back cleanly; no tenant was registered")
 }
 
 func cmdList(reg *registry.Registry, args []string, stdout, stderr io.Writer) int {

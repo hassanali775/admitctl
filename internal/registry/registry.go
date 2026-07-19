@@ -137,6 +137,25 @@ func (r *Registry) Deactivate(id string) error {
 	return nil
 }
 
+// Remove permanently deletes a tenant from the registry, leaving no
+// trace of it. This is deliberately distinct from Deactivate:
+// Deactivate is the normal, auditable lifecycle transition for
+// taking a tenant out of service while keeping its record; Remove
+// exists solely to support rollback — undoing a Register call that
+// should never have succeeded (e.g. the tenant failed its initial
+// health check). Application code implementing ordinary tenant
+// offboarding should use Deactivate, never Remove.
+func (r *Registry) Remove(id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if _, ok := r.records[id]; !ok {
+		return fmt.Errorf("registry: remove %q: %w", id, ErrNotFound)
+	}
+	delete(r.records, id)
+	return nil
+}
+
 // Restore replaces the registry's entire contents with records,
 // bypassing Register's validation and duplicate checks. It exists
 // solely to hydrate a fresh Registry from a persisted snapshot (see
