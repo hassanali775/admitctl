@@ -1,0 +1,19 @@
+{
+  "Config": {
+    "ID": "acme-corp",
+    "DisplayName": "Acme Corp",
+    "Auth": "api_key",
+    "DataSchemaVersion": "v1",
+    "RateLimit": {
+      "RequestsPerSecond": 100,
+      "Burst": 250
+    },
+    "FeatureFlags": {
+      "beta_dashboard": true,
+      "new_ui": true
+    }
+  },
+  "Status": "active",
+  "CreatedAt": "2026-07-19T19:55:39.500303016Z",
+  "UpdatedAt": "2026-07-19T19:55:39.500303016Z"
+}

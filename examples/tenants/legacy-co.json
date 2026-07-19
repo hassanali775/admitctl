@@ -1,0 +1,16 @@
+{
+  "Config": {
+    "ID": "legacy-co",
+    "DisplayName": "Legacy Co",
+    "Auth": "mtls",
+    "DataSchemaVersion": "v0.9",
+    "RateLimit": {
+      "RequestsPerSecond": 5,
+      "Burst": 15
+    },
+    "FeatureFlags": null
+  },
+  "Status": "active",
+  "CreatedAt": "2026-07-19T19:55:39.510249078Z",
+  "UpdatedAt": "2026-07-19T19:55:39.510249078Z"
+}

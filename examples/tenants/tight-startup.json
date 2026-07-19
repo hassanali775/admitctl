@@ -1,0 +1,16 @@
+{
+  "Config": {
+    "ID": "tight-startup",
+    "DisplayName": "Tight Startup",
+    "Auth": "oauth2",
+    "DataSchemaVersion": "v1",
+    "RateLimit": {
+      "RequestsPerSecond": 20,
+      "Burst": 20
+    },
+    "FeatureFlags": null
+  },
+  "Status": "active",
+  "CreatedAt": "2026-07-19T19:55:39.50573947Z",
+  "UpdatedAt": "2026-07-19T19:55:39.50573947Z"
+}
